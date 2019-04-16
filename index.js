@@ -13,48 +13,13 @@ const session = require("telegraf/session");
 const Stage = require("telegraf/stage");
 const WizardScene = require("telegraf/scenes/wizard");
 
-// var options = {
-//     reply_markup: JSON.stringify({
-//       inline_keyboard: [
-//         [{ text: `\u{1F35B} Всі продукти  `, callback_data: 'Поки що нема продуктів.' }],
-//         [{ text: `\u{1F53C} Додати продукт`, callback_data: 'data 2' }]
-//       ]
-//     })
-//   };
-
-//   bot.onText(/\/start_test/, function (msg, match) {
-//     bot.sendMessage(msg.chat.id, 'Выберите любую кнопку:', options);
-//   });
-
-// bot.onText(/\/get_data (.+)/, function(msg,match) {
-//     let item = match[1];
-//     let chatId = msg.chat.id;
-//     request(`https://eliot-project.herokuapp.com/products/`, function(error, response, body) {
-//       if(!error && response.statusCode == 200) {
-//         bot.sendMessage(chatId, '__Loking for ' +  item + '...',{parse_mode:'Markdown'})
-//         .then(function(msg){
-//           let res = JSON.parse(body);
-//           let findItem =({ name }) => {
-//             return name === item;
-//           }
-//           let newArr = res.filter(findItem);
-//           let product = newArr[0];
-//           if(newArr.length !== 0 ) {
-//           bot.sendMessage(chatId, 'You was looking for a : ' + product.name +"\nThe price is " +product.price + ' $ \n' );
-//           }else {
-//             bot.sendMessage(chatId, 'Sorry, but there is no such a product!');
-//           }
-//         })
-//       }
-//     })
-// })
-
 
 let productTemplate = product => `Продукт \u{2705}
 Назва: ${product.name} 
 Ціна: ${product.price} 
 ${product.isAvaiable ? "Наразі доступний" : "Наразі недоступний"} \n\n`;
 
+//Отримуємо всі продукти
 let obtainData = ctx => {
   request(
     `https://eliot-project.herokuapp.com/products/`,
@@ -75,6 +40,7 @@ let obtainData = ctx => {
 };
 
 
+//Створюємо новий продукт
 let sendData = (ctx, product) => {
   let request = require("request");
   request.post(
@@ -89,7 +55,42 @@ let sendData = (ctx, product) => {
   );
 };
 
+// Отримуємо продукт по імені
+let findingProduct = '';
+const getProduct = new WizardScene(
+  "getProduct",
+  ctx => {
+    ctx.reply("Введіть ім'я продукту:");
+    return ctx.wizard.next();
+  },
+  ctx =>{
+    findingProduct = ctx.update.message.text;
+    request(
+      'https://eliot-project.herokuapp.com/products/',
+      (error , response , body) =>{
+        if(!error && response.statusCode == 200) {
+          ctx
+          .reply('Loking for ' +  findingProduct + '...',{parse_mode:'Markdown'})
+          .then(msg => {
+            let res = JSON.parse(body);
+            let findItem =({ name }) => {
+              return name === findingProduct;
+            }
+            let newArr = res.filter(findItem);
+            let product = newArr[0];
+            if(newArr.length !== 0 ) {
+            ctx.reply('Ви шукали : ' + product.name +"\nЦіна " +product.price + ' $ \n'  + (product.isAvaiable ? "Наразі доступний" : "Наразі недоступний"));
+            }else {
+              ctx.reply('Вибачте, але такого продукта в нашій базі даних немає. Попробуйте ще раз.');
+            }
+          })
+        }
+      }
+    )
+  }
+)
 
+//Продовження додавання продукту
 let product = {};
 
 const create = new WizardScene(
@@ -119,15 +120,6 @@ const create = new WizardScene(
   }
 );
 
-
-const stage = new Stage();
-stage.register(create);
-
-bot.use(session());
-bot.use(stage.middleware());
-bot.action("create", ctx => ctx.scene.enter("create"));
-bot.action("getProducts", ctx => obtainData(ctx));
-
 bot.action("yes", (ctx, next) => {
   product.isAvaiable = true;
   next(ctx);
@@ -138,13 +130,26 @@ bot.action("no", (ctx, next) => {
   next(ctx);
 });
 
+
+//Ініціалізація, головна частина
+const stage = new Stage();
+stage.register(create);
+stage.register(getProduct);
+
+bot.use(session());
+bot.use(stage.middleware());
+bot.action("create", ctx => ctx.scene.enter("create"));
+bot.action("getProducts", ctx => obtainData(ctx));
+bot.action("getProduct", ctx=> ctx.scene.enter("getProduct"));
+
 bot.start(ctx => {
   ctx.reply(
     "Оберіть дію",
     Markup.inlineKeyboard([
       [
         { text: `Всі продукти  `, callback_data: "getProducts" },
-        { text: `Додати продукт`, callback_data: "create" }
+        { text: `Додати продукт`, callback_data: "create" },
+        {text: `Знайти продукт`, callback_data: "getProduct"}
       ]
     ])
       .oneTime()
