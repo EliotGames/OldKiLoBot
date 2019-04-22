@@ -1,25 +1,25 @@
 let TelegramBot = require("node-telegram-bot-api");
 let token = "809682377:AAHs98OrOIoYFpdcWXUZl3-EYCM4z9nvyRU";
 // let bot = new TelegramBot(token, {polling:true});
-const mongoose = require("mongoose");
 let request = require("request");
-const inquirer = require("inquirer");
 const Telegraf = require("telegraf");
 const bot = new Telegraf(token);
 const Extra = require("telegraf/extra");
 const Markup = require("telegraf/markup");
-const SERVER_URL = 'https://eliot-project.herokuapp.com/products';
+const SERVER_URL = "https://eliot-project.herokuapp.com/products";
+const USERS_URL = "https://eliot-project.herokuapp.com/users";
 const session = require("telegraf/session");
 const Stage = require("telegraf/stage");
 const WizardScene = require("telegraf/scenes/wizard");
 
 
+//Basic Template
 let productTemplate = product => `Продукт \u{2705}
 Назва: ${product.name} 
 Ціна: ${product.price} 
 ${product.isAvaiable ? "Наразі доступний" : "Наразі недоступний"} \n\n`;
 
-//Отримуємо всі продукти
+//Get all products
 let obtainData = ctx => {
   request(
     `https://eliot-project.herokuapp.com/products/`,
@@ -39,13 +39,12 @@ let obtainData = ctx => {
   );
 };
 
-
-//Створюємо новий продукт
+//Post method to database /products
 let sendData = (ctx, product) => {
   let request = require("request");
   request.post(
     {
-      headers: { 'content-type': 'application/json' },
+      headers: { "content-type": "application/json" },
       url: SERVER_URL,
       body: JSON.stringify(product)
     },
@@ -55,42 +54,66 @@ let sendData = (ctx, product) => {
   );
 };
 
-// Отримуємо продукт по імені
-let findingProduct = '';
+// Get product by name
+let findingProduct = "";
 const getProduct = new WizardScene(
   "getProduct",
   ctx => {
     ctx.reply("Введіть ім'я продукту:");
     return ctx.wizard.next();
   },
-  ctx =>{
+  ctx => {
     findingProduct = ctx.update.message.text;
     request(
-      'https://eliot-project.herokuapp.com/products/',
-      (error , response , body) =>{
-        if(!error && response.statusCode == 200) {
+      "https://eliot-project.herokuapp.com/products/",
+      (error, response, body) => {
+        if (!error && response.statusCode == 200) {
           ctx
-          .reply('Loking for ' +  findingProduct + '...',{parse_mode:'Markdown'})
-          .then(msg => {
-            let res = JSON.parse(body);
-            let findItem =({ name }) => {
-              return name === findingProduct;
-            }
-            let newArr = res.filter(findItem);
-            let product = newArr[0];
-            if(newArr.length !== 0 ) {
-            ctx.reply('Ви шукали : ' + product.name +"\nЦіна " +product.price + ' $ \n'  + (product.isAvaiable ? "Наразі доступний" : "Наразі недоступний"));
-            }else {
-              ctx.reply('Вибачте, але такого продукта в нашій базі даних немає. Попробуйте ще раз.');
-            }
-          })
+            .reply("Loking for " + findingProduct + "...", {
+              parse_mode: "Markdown"
+            })
+            .then(msg => {
+              let res = JSON.parse(body);
+              let findItem = ({ name }) => {
+                return name === findingProduct;
+              };
+              let newArr = res.filter(findItem);
+              let product = newArr[0];
+              if (newArr.length !== 0) {
+                ctx.reply(
+                  "Ваш продукт знайдено : \n" + productTemplate(product)
+                );
+              } else {
+                ctx.reply(
+                  "Вибачте, але такого продукта в нашій базі даних немає. Для продовження введіть /start"
+                );
+              }
+            });
+          return ctx.scene.leave();
         }
       }
-    )
+    );
   }
-)
+);
+// Register user in a database
+let registerUser = (ctx, newUser) => {
+  let request = require("request");
+  request.post(
+    {
+      headers: { "content-type": "application/json" },
+      url: USERS_URL,
+      body: JSON.stringify(newUser)
+    },
+    function(error, response, body) {
+      console.log();
+    }
+  );
+};
+let newUser = {};
 
-//Продовження додавання продукту
+
+
+//Creating a new product
 let product = {};
 
 const create = new WizardScene(
@@ -100,6 +123,7 @@ const create = new WizardScene(
     return ctx.wizard.next();
   },
   ctx => {
+    console.log(ctx);
     product.name = ctx.update.message.text;
     ctx.reply("Введіть ціну продукту");
     return ctx.wizard.next();
@@ -115,23 +139,23 @@ const create = new WizardScene(
         ]
       ]).extra()
     );
-
     return ctx.scene.leave();
   }
 );
 
 bot.action("yes", (ctx, next) => {
   product.isAvaiable = true;
-  next(ctx);
+  ctx.reply(productTemplate(product));
+  sendData(ctx, product);
 });
 
 bot.action("no", (ctx, next) => {
   product.isAvaiable = false;
-  next(ctx);
+  ctx.reply(productTemplate(product));
+  sendData(ctx, product);
 });
 
-
-//Ініціалізація, головна частина
+//Main
 const stage = new Stage();
 stage.register(create);
 stage.register(getProduct);
@@ -140,27 +164,57 @@ bot.use(session());
 bot.use(stage.middleware());
 bot.action("create", ctx => ctx.scene.enter("create"));
 bot.action("getProducts", ctx => obtainData(ctx));
-bot.action("getProduct", ctx=> ctx.scene.enter("getProduct"));
+bot.action("getProduct", ctx => ctx.scene.enter("getProduct"));
+
 
 bot.start(ctx => {
-  ctx.reply(
-    "Оберіть дію",
-    Markup.inlineKeyboard([
-      [
-        { text: `Всі продукти  `, callback_data: "getProducts" },
-        { text: `Додати продукт`, callback_data: "create" },
-        {text: `Знайти продукт`, callback_data: "getProduct"}
-      ]
-    ])
-      .oneTime()
-      .resize()
-      .extra()
-  );
-});
+   let userId = ctx.message.from.id.toString();
+   let firstName = ctx.message.from.first_name;
+  request(
+    USERS_URL,
+  (error,response, body) => {
+    if(!error && response.statusCode == 200) {
+      let allUsers = JSON.parse(body);
+      let findUser = ({ _id }) => {
+        return _id === userId;
+      }
+      let newArr = allUsers.filter(findUser);
+      let user = newArr[0];
+      if(newArr.length === 0){
+        newUser.id = userId;
+        newUser.firstName = firstName;
+        registerUser(ctx , newUser);        
+        ctx.reply(
+            `Привіт, вітаємо тебе ${newUser.firstName}. Тепер ти можеш користуватись ботом!`,
+          Markup.inlineKeyboard([
+            [
+              { text: `Всі продукти  `, callback_data: "getProducts" },
+              { text: `Додати продукт`, callback_data: "create" },
+              { text: `Знайти продукт`, callback_data: "getProduct" }
+            ]
+          ])
+            .oneTime()
+            .resize()
+            .extra())
+        
+      }else {
+        ctx.reply(
+          `Привіт ${firstName}, раді тебе знову бачити!`,
+        Markup.inlineKeyboard([
+          [
+            { text: `Всі продукти  `, callback_data: "getProducts" },
+            { text: `Додати продукт`, callback_data: "create" },
+            { text: `Знайти продукт`, callback_data: "getProduct" }
+          ]
+        ])
+          .oneTime()
+          .resize()
+          .extra())
+      }
+    }
+  })   
+})
 
-bot.use(ctx => {
-  ctx.reply(productTemplate(product));
-  sendData(ctx, product);
-});
+
 
 bot.launch();
