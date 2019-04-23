@@ -12,7 +12,6 @@ const session = require("telegraf/session");
 const Stage = require("telegraf/stage");
 const WizardScene = require("telegraf/scenes/wizard");
 
-
 //Basic Template
 let productTemplate = product => `Продукт \u{2705}
 Назва: ${product.name} 
@@ -105,13 +104,29 @@ let registerUser = (ctx, newUser) => {
       body: JSON.stringify(newUser)
     },
     function(error, response, body) {
-      console.log();
+      console.log(response);
     }
   );
 };
 let newUser = {};
 
+// User greeting
 
+let userGreeting = (ctx, firstName) => {
+  ctx.reply(
+    `Привіт ${firstName}, раді тебе знову бачити!`,
+    Markup.inlineKeyboard([
+      [
+        { text: `Всі продукти  `, callback_data: "getProducts" },
+        { text: `Додати продукт`, callback_data: "create" },
+        { text: `Знайти продукт`, callback_data: "getProduct" }
+      ]
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+};
 
 //Creating a new product
 let product = {};
@@ -119,7 +134,7 @@ let product = {};
 const create = new WizardScene(
   "create",
   ctx => {
-    ctx.reply("Введіть ім'я продукту:");
+    ctx.reply("Введіть назву продукту:");
     return ctx.wizard.next();
   },
   ctx => {
@@ -130,18 +145,24 @@ const create = new WizardScene(
   },
   ctx => {
     product.price = parseInt(ctx.update.message.text);
-    ctx.reply(
-      "Веддіть доступність продукту: ",
-      Markup.inlineKeyboard([
-        [
-          Markup.callbackButton("\u{2705}	Tак", "yes"),
-          Markup.callbackButton("\u{274E} Ні", "no")
-        ]
-      ]).extra()
-    );
-    return ctx.scene.leave();
+    if (product.price > 0) {
+      ctx.reply(
+        "Веддіть доступність продукту: ",
+        Markup.inlineKeyboard([
+          [
+            Markup.callbackButton("\u{2705}	Tак", "yes"),
+            Markup.callbackButton("\u{274E} Ні", "no")
+          ]
+        ]).extra()
+      );
+      return ctx.scene.leave();
+    } else {
+      ctx.reply("Ви ввели неможливу ціну. Повторіть все спочатку.\nВведіть назву продукту:");
+      ctx.wizard.back();
+    }
   }
 );
+
 
 bot.action("yes", (ctx, next) => {
   product.isAvaiable = true;
@@ -166,55 +187,20 @@ bot.action("create", ctx => ctx.scene.enter("create"));
 bot.action("getProducts", ctx => obtainData(ctx));
 bot.action("getProduct", ctx => ctx.scene.enter("getProduct"));
 
-
 bot.start(ctx => {
-   let userId = ctx.message.from.id.toString();
-   let firstName = ctx.message.from.first_name;
-  request(
-    USERS_URL,
-  (error,response, body) => {
-    if(!error && response.statusCode == 200) {
-      let allUsers = JSON.parse(body);
-      let findUser = ({ _id }) => {
-        return _id === userId;
-      }
-      let newArr = allUsers.filter(findUser);
-      let user = newArr[0];
-      if(newArr.length === 0){
-        newUser.id = userId;
+  let userId = ctx.message.from.id.toString();
+  let firstName = ctx.message.from.first_name;
+  request(`${USERS_URL}/?telegramId=${userId}`, (error, response, body) => {
+    if (!error && response.statusCode == 200) {
+        userGreeting(ctx,firstName);
+      } else {
         newUser.firstName = firstName;
-        registerUser(ctx , newUser);        
-        ctx.reply(
-            `Привіт, вітаємо тебе ${newUser.firstName}. Тепер ти можеш користуватись ботом!`,
-          Markup.inlineKeyboard([
-            [
-              { text: `Всі продукти  `, callback_data: "getProducts" },
-              { text: `Додати продукт`, callback_data: "create" },
-              { text: `Знайти продукт`, callback_data: "getProduct" }
-            ]
-          ])
-            .oneTime()
-            .resize()
-            .extra())
-        
-      }else {
-        ctx.reply(
-          `Привіт ${firstName}, раді тебе знову бачити!`,
-        Markup.inlineKeyboard([
-          [
-            { text: `Всі продукти  `, callback_data: "getProducts" },
-            { text: `Додати продукт`, callback_data: "create" },
-            { text: `Знайти продукт`, callback_data: "getProduct" }
-          ]
-        ])
-          .oneTime()
-          .resize()
-          .extra())
+        newUser.telegramId = userId;
+        registerUser(ctx, newUser);
+        console.log(newUser);
+        userGreeting(ctx, firstName);
       }
-    }
-  })   
-})
-
-
+  });
+});
 
 bot.launch();
